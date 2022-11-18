@@ -11,26 +11,22 @@ import (
 const BaseLink string = "link-shortener/"
 
 func InsertLink(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content_Type", "application/json")
 
 	link := r.URL.Query().Get("link")
 	uniqueHash := generateHash(6)
 
 	short, err := insertLinkInDB(link, uniqueHash)
 	if err != nil {
-
-		w.Header().Set("Content_Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error_message": err.Error()})
 		return
-
 	} else {
 		setInRedis(link, uniqueHash)
 	}
 
-	w.Header().Set("Content_Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(map[string]string{"short_link": BaseLink + short})
-
 }
 
 func setInRedis(link, hash string) {
@@ -39,41 +35,41 @@ func setInRedis(link, hash string) {
 }
 
 func GetGeneralLink(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content_Type", "application/json")
 
 	short := r.URL.Query().Get("short")
 
 	// check Redis
 	link, _ := DB.RDB.Get(DB.CTX, short).Result()
+
 	var err error
 	if link == "" {
 		// get from MySQL
 		link, err = getOriginalLinkFromDB(short)
 	}
-
+	if link == "" {
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error_message": "link doesn't exist"})
+		return
+	}
 	if err != nil {
-		w.Header().Set("Content_Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error_message": err.Error()})
 		return
 	}
 
-	w.Header().Set("Content_Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(map[string]string{"original_link": link})
-
 }
 
 func getOriginalLinkFromDB(h string) (link string, err error) {
-
 	row := DB.MYSQL.QueryRow("SELECT original_link FROM links WHERE hash = ?", h)
 
 	err = row.Scan(&link)
 	return
-
 }
 
 func generateHash(n int) string {
-
 	rand.Seed(time.Now().UnixNano())
 
 	letterRunes := []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
@@ -83,17 +79,14 @@ func generateHash(n int) string {
 		b[i] = letterRunes[rand.Intn(len(letterRunes))]
 	}
 	return string(b)
-
 }
 
 func insertLinkInDB(link, hash string) (short string, err error) {
-
 	// check if exists
 	row := DB.MYSQL.QueryRow("SELECT hash FROM links WHERE original_link = ?", link)
 	_ = row.Scan(&short)
 
 	if short == "" {
-
 		// insert new record
 		row = DB.MYSQL.QueryRow("INSERT INTO links (original_link, hash) VALUES (?,?)", link, hash)
 		err = row.Scan()
@@ -101,8 +94,6 @@ func insertLinkInDB(link, hash string) (short string, err error) {
 		if err.Error() == "sql: no rows in result set" {
 			err = nil
 		}
-
 	}
 	return
-
 }
